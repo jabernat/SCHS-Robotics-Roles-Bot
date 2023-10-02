@@ -86,7 +86,7 @@ https://discord.com/terms ).
 
 ## Privacy Policy
 
-This bot does not persist any user data other than the backup files that it
-generates on request.  No data is shared with third parties.  Because this bot
-is not operated by a for-profit company, it is exempt from the California
-Consumer Privacy Act (CCPA).
+This bot does not persist any user data, and only uploads its backup files to
+the Discord channel where they were requested.  No data is shared with third
+parties.  Because this bot is not operated by a for-profit company, it is exempt
+from the California Consumer Privacy Act (CCPA).
