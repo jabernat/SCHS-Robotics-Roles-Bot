@@ -8,6 +8,8 @@ School's SCHS Robotics server for the following FIRST Robotics FTC teams:
 *   15097 Python
 *   23997 Catalysts
 
+<img src="Icon.png" alt="Bot's Discord icon of the silhouette of a cat with gleaming red eyes." style="width: 5em; height: 5em;"/>
+
 Development is hosted at [GitHub.com/jabernat/SCHS-Robotics-Roles-Bot](
 https://github.com/jabernat/SCHS-Robotics-Roles-Bot ).
 
