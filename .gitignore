@@ -1,0 +1,5 @@
+# Python compiled sources
+**/__pycache__/
+
+# mypy static analysis cache
+/.mypy_cache/
