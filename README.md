@@ -14,7 +14,7 @@ Development is hosted at [GitHub.com/jabernat/SCHS-Robotics-Roles-Bot](
 https://github.com/jabernat/SCHS-Robotics-Roles-Bot ).
 
 
-## Bot Setup
+## Setup
 
 ### Profile Creation
 
@@ -83,15 +83,21 @@ new role should be reordered to between roles that should and shouldn't be
 affected by the bot; Administrator and mentor roles should come before it, and
 team roles, `@Active`, and `@Alumni` should come after it.
 
+To limit the bot's interaction to certain channels or to certain roles, use the
+server's "Integrations" settings page.
 
-## Usage
 
-Run the bot's script for it to appear online in the server and accept chat
-commands in the `#roles-bot` channel.  Once online, the bot accepts the
-following commands.
+## Commands
 
-**Warning**: Care must be taken not to manually update user roles during any of
-these commands.
+Once the script logs in, the bot will appear online in the server and accept
+commands from users with role and nickname management permissions.  The bot
+accepts the following slash commands.
+
+> **Warning**: Care must be taken not to manually update user roles during any
+> of these commands.
+
+### Command `/help`
+Responds with information about this bot.
 
 ### Command `/backup`
 Captures the role assignments of the server's users and responds with a
