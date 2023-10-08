@@ -4,7 +4,7 @@ commands until closed.
 """
 
 
-__version__ = '0.0.2'
+__version__ = '0.0.3'
 
 __authors__ = ['James Abernathy']
 __copyright__ = 'Copyright © 2023 James Abernathy'
@@ -29,11 +29,18 @@ class RolesBotClient(_discord.Client):
     """
 
     _logger: _logging.Logger
+    """Top-level logger for this client."""
 
     _slash_commands: _discord.app_commands.CommandTree
     """Tree of available slash commands."""
 
     _guild_id_loggers: _typing.Dict[int, _logging.Logger]
+    """Server-specific loggers indexed by guild ID."""
+
+    _guild_id_busy: _typing.Dict[int, bool]
+    """Server-specific busy flags indexed by guild ID and set ``true`` during
+    backup, restore, and update operations.
+    """
 
 
     def __init__(self, *args, **kwargs) -> None:
@@ -45,7 +52,10 @@ class RolesBotClient(_discord.Client):
 
         self._logger = _logging.getLogger(
             f'{_discord.__name__}.{type(self).__name__}')
+
         self._guild_id_loggers = dict()
+        self._guild_id_busy = dict()
+
         self._slash_commands = _discord.app_commands.CommandTree(self,
             fallback_to_global=False)
 
@@ -62,6 +72,7 @@ class RolesBotClient(_discord.Client):
         guild_logger = _logging.getLogger(
             f'{self._logger.name}.{guild.name.replace(".", "")}')
         self._guild_id_loggers[guild.id] = guild_logger
+        self._guild_id_busy[guild.id] = False
 
         # /roles_help
         @self._slash_commands.command(guild=guild)  # type: ignore[arg-type]
@@ -128,31 +139,41 @@ class RolesBotClient(_discord.Client):
         command = _typing.cast(_discord.app_commands.Command, interaction.command)
         command_name = f'`/{command.qualified_name}` (ID {interaction.id:X})'
 
-        # Respond with placeholder message
-        message = f'{command_name} in progress…'
-        logger.info(message)
-        await interaction.response.send_message(content=message)
-
-        attachments: _typing.List[_discord.File]
+        # Acquire exclusive access
+        assert interaction.guild_id is not None
+        if self._guild_id_busy[interaction.guild_id]:
+            await interaction.response.send_message(ephemeral=True,
+                content=f'{command_name} ignored while another command is running.')
+            return
+        self._guild_id_busy[interaction.guild_id] = True
         try:
-            attachments = await command_callback(logger, interaction,
-                *command_args)
-
-        except Exception as ex:
-            # Embed exception in placeholder
-            message = f'{command_name} failed.'
-            await interaction.edit_original_response(content=message,
-                embed=_discord.Embed(type='rich',
-                    title=type(ex).__name__, color=_discord.Colour.brand_red(),
-                    description=f'```\n{_discord.utils.escape_markdown(str(ex))}\n```'))
-            raise
-
-        else:
-            # Attach files to placeholder
-            message = f'{command_name} succeeded.'
+            # Respond with placeholder message
+            message = f'{command_name} in progress…'
             logger.info(message)
-            await interaction.edit_original_response(content=message,
-                attachments=attachments)
+            await interaction.response.send_message(content=message)
+
+            # Execute long-running command
+            attachments: _typing.List[_discord.File]
+            try:
+                attachments = await command_callback(logger, interaction,
+                    *command_args)
+            except Exception as ex:
+                # Embed exception in placeholder
+                message = f'{command_name} failed.'
+                await interaction.edit_original_response(content=message,
+                    embed=_discord.Embed(type='rich',
+                        title=type(ex).__name__, color=_discord.Colour.brand_red(),
+                        description=f'```\n{_discord.utils.escape_markdown(str(ex))}\n```'))
+                raise
+            else:
+                # Attach files to placeholder
+                message = f'{command_name} succeeded.'
+                logger.info(message)
+                await interaction.edit_original_response(content=message,
+                    attachments=attachments)
+
+        finally:  # Release exclusive access
+            self._guild_id_busy[interaction.guild_id] = False
 
 
     async def _command_roles_help(self,
