@@ -4,7 +4,7 @@ commands until closed.
 """
 
 
-__version__ = '0.0.3'
+__version__ = '0.0.4'
 
 __authors__ = ['James Abernathy']
 __copyright__ = 'Copyright © 2023 James Abernathy'
@@ -12,7 +12,9 @@ __license__ = 'MIT'
 
 
 import asyncio as _asyncio
+import csv as _csv
 import datetime as _datetime
+import gzip as _gzip
 import io as _io
 import logging as _logging
 import os as _os
@@ -190,9 +192,25 @@ class RolesBotClient(_discord.Client):
     ) -> _typing.List[_discord.File]:
         """Creates a backup file of members' display names and roles."""
         start_time = _datetime.datetime.now()
-        await _asyncio.sleep(5)
-        return [_discord.File(_io.BytesIO(b''), filename=
-            f'Roles_Backup_{start_time:%Y-%m-%dT%H-%M-%S}.csv.gz')]
+        filename = f'Roles_Backup_{start_time:%Y-%m-%dT%H-%M-%S}.csv.gz'
+
+        csv_gz_file = _io.BytesIO()
+        with _gzip.GzipFile(mode='wb', fileobj=csv_gz_file, filename=filename,
+            mtime=int(start_time.timestamp())
+        ) as csv_bytes_file, _io.TextIOWrapper(
+            _typing.cast(_typing.IO[bytes], csv_bytes_file),
+            encoding='utf_8', errors='strict', newline=''
+        ) as csv_file:
+            csv_writer = _csv.DictWriter(csv_file, dialect='excel', fieldnames=[
+                'Username', 'Display Name', 'A', 'B', 'C'])
+            csv_writer.writeheader()
+            csv_writer.writerows([
+                {'Username': 'x', 'Display Name': 'X', 'A': 1, 'B': 0, 'C': 0},
+                {'Username': 'y', 'Display Name': 'Y', 'A': 0, 'B': 1, 'C': 0},
+                {'Username': 'z', 'Display Name': 'Z', 'A': 0, 'B': 0, 'C': 1}])
+
+        csv_gz_file.seek(0)
+        return [_discord.File(csv_gz_file, filename=filename)]
 
     async def _command_roles_restore(self,
         logger: _logging.Logger,
@@ -200,10 +218,16 @@ class RolesBotClient(_discord.Client):
         csv_gz_attachment: _discord.Attachment
     ) -> _typing.List[_discord.File]:
         """Restores members' display names and roles from a backup file."""
-        csv_gz_bytes = await csv_gz_attachment.read()
-        await _asyncio.sleep(5)
-        return [
-            await csv_gz_attachment.to_file()]
+        csv_gz_attachment_file = await csv_gz_attachment.to_file()
+        with _gzip.open(csv_gz_attachment_file.fp, mode='rt',
+             encoding='utf_8', errors='strict', newline=''
+        ) as csv_file:
+            csv_lines = _typing.cast(_typing.Iterable[str], csv_file)
+            for row in _csv.DictReader(csv_lines, dialect='excel', strict=True):
+                logger.info(row)
+
+        csv_gz_attachment_file.fp.seek(0)
+        return [csv_gz_attachment_file]
 
     async def _command_roles_update(self,
         logger: _logging.Logger,
@@ -213,7 +237,7 @@ class RolesBotClient(_discord.Client):
         of a Google Sheet.
         """
         start_time = _datetime.datetime.now()
-        await _asyncio.sleep(5)
+
         return [
             _discord.File(_io.BytesIO(b''), filename=
                 f'Roles_Backup_{start_time:%Y-%m-%dT%H-%M-%S}.csv.gz'),
