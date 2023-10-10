@@ -65,7 +65,7 @@ class RolesBotClient(_discord.Client):
     async def on_ready(self) -> None:
         """Registers global slash commands with the server once logged in."""
         await self._slash_commands.sync()  # Global commands only
-        self._logger.info(f'Logged on as {self.user}.')
+        self._logger.info(f'Logged on as “{self.user}”.')
 
     async def on_guild_available(self,
         guild: _discord.Guild
@@ -125,7 +125,7 @@ class RolesBotClient(_discord.Client):
 
         await self._slash_commands.sync(guild=guild)
         self._guild_id_loggers[guild.id].info(
-            f'Registered commands with guild ID {guild.id:X}')
+            f'Registered commands (Guild ID: {guild.id:x}).')
 
 
     async def _respond_to_long_command(self,
@@ -140,7 +140,8 @@ class RolesBotClient(_discord.Client):
         """
         guild_logger = self._guild_id_loggers[guild.id]
         command = _typing.cast(_discord.app_commands.Command, interaction.command)
-        command_name = f'`/{command.qualified_name}` (ID {interaction.id:X})'
+        command_name = (f'`/{command.qualified_name}` '
+            f'(Interaction ID: {interaction.id:x})')
 
         # Acquire exclusive access
         if self._guild_id_busy[guild.id]:
@@ -163,11 +164,17 @@ class RolesBotClient(_discord.Client):
                 attachments = await command_callback(guild, *command_args)
             except Exception as ex:
                 # Embed exception in placeholder
-                message = f'{command_name} failed.'
+                message = f'{command_name} failed:'
+                ex_name = f'`{type(ex).__name__}`'
+                ex_message = (
+                    '```\n'
+                    f'{_discord.utils.escape_markdown(str(ex))}\n'
+                    '```')
+
                 await interaction.edit_original_response(content=message,
-                    embed=_discord.Embed(type='rich',
-                        title=type(ex).__name__, color=_discord.Colour.brand_red(),
-                        description=f'```\n{_discord.utils.escape_markdown(str(ex))}\n```'))
+                    embed=_discord.Embed(title=ex_name,
+                        description=ex_message, type='rich',
+                        color=_discord.Colour.brand_red()))
                 raise
             else:
                 # Attach files to placeholder
