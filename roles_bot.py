@@ -4,7 +4,7 @@ commands until closed.
 """
 
 
-__version__ = '0.0.4'
+__version__ = '0.0.5'
 
 __authors__ = ['James Abernathy']
 __copyright__ = 'Copyright © 2023 James Abernathy'
@@ -43,6 +43,18 @@ class RolesBotClient(_discord.Client):
     """Server-specific busy flags indexed by guild ID and set ``true`` during
     backup, restore, and update operations.
     """
+
+
+    _COLUMN_ID: str = 'User ID'
+    """CSV column header for string representations of members' integer user
+    IDs.
+    """
+
+    _COLUMN_NAME: str = 'Username'
+    """CSV column header for members' login usernames or discriminators."""
+
+    _COLUMN_NICK: str = 'Display Name'
+    """CSV column header for members' server-specific display names."""
 
 
     def __init__(self, *args, **kwargs) -> None:
@@ -200,8 +212,25 @@ class RolesBotClient(_discord.Client):
     ) -> _typing.List[_discord.File]:
         """Creates a backup file of members' display names and roles."""
         start_time = _datetime.datetime.now()
-        filename = f'Roles_Backup_{start_time:%Y-%m-%dT%H-%M-%S}.csv.gz'
 
+        # Query details
+        roles = [role for role in reversed(guild.roles)  # Most-privileged first
+            if role.is_assignable()]  # Restorable by bot
+        members = [member
+            async for member in guild.fetch_members(limit=None)
+            if member.top_role < guild.self_role]  # Restorable by bot
+        member_rows = [{
+            # Prefix ID so spreadsheets interpret huge number as lossless text.
+            self._COLUMN_ID: f'#{member.id}',
+            self._COLUMN_NAME: f'{member}',
+            self._COLUMN_NICK: member.nick or '',
+            # 0/1 booleans for each role
+            **{role.name: int(member.get_role(role.id) is not None)
+                for role in roles}}
+            for member in sorted(members, key=lambda member: member.id)]
+
+        # Format as gzipped CSV
+        filename = f'Roles_Backup_{start_time:%Y-%m-%dT%H-%M-%S}.csv.gz'
         csv_gz_file = _io.BytesIO()
         with _gzip.GzipFile(mode='wb', fileobj=csv_gz_file, filename=filename,
             mtime=int(start_time.timestamp())
@@ -210,14 +239,12 @@ class RolesBotClient(_discord.Client):
             encoding='utf_8', errors='strict', newline=''
         ) as csv_file:
             csv_writer = _csv.DictWriter(csv_file, dialect='excel', fieldnames=[
-                'Username', 'Display Name', 'A', 'B', 'C'])
+                self._COLUMN_ID, self._COLUMN_NAME, self._COLUMN_NICK,
+                *(role.name for role in roles)])
             csv_writer.writeheader()
-            csv_writer.writerows([
-                {'Username': 'x', 'Display Name': 'X', 'A': 1, 'B': 0, 'C': 0},
-                {'Username': 'y', 'Display Name': 'Y', 'A': 0, 'B': 1, 'C': 0},
-                {'Username': 'z', 'Display Name': 'Z', 'A': 0, 'B': 0, 'C': 1}])
-
+            csv_writer.writerows(member_rows)
         csv_gz_file.seek(0)
+
         return [_discord.File(csv_gz_file, filename=filename)]
 
     async def _command_roles_restore(self,
@@ -227,6 +254,7 @@ class RolesBotClient(_discord.Client):
         """Restores members' display names and roles from a backup file."""
         guild_logger = self._guild_id_loggers[guild.id]
 
+        # Parse gzipped CSV
         csv_gz_attachment_file = await csv_gz_attachment.to_file()
         with _gzip.open(csv_gz_attachment_file.fp, mode='rt',
              encoding='utf_8', errors='strict', newline=''
@@ -234,8 +262,8 @@ class RolesBotClient(_discord.Client):
             csv_lines = _typing.cast(_typing.Iterable[str], csv_file)
             for row in _csv.DictReader(csv_lines, dialect='excel', strict=True):
                 guild_logger.info(row)
-
         csv_gz_attachment_file.fp.seek(0)
+
         return [csv_gz_attachment_file]
 
     async def _command_roles_update(self,

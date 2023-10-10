@@ -8,7 +8,8 @@ School's SCHS Robotics server for the following FIRST Robotics FTC teams:
 *   15097 Python
 *   23997 Catalysts
 
-<img src="Icon.png" alt="Bot's Discord icon of the silhouette of a cat with gleaming red eyes." style="width: 5em; height: 5em;"/>
+<img src="Icon.png" style="width: 5em; height: 5em;"
+    alt="Bot's Discord icon of the silhouette of a cat's head with gleaming red eyes."/>
 
 Development is hosted at [GitHub.com/jabernat/SCHS-Robotics-Roles-Bot](
 https://github.com/jabernat/SCHS-Robotics-Roles-Bot ).
@@ -116,9 +117,9 @@ Captures the role assignments of the server's users and responds with a
 UTF8-encoded gzipped CSV file attachment structured as follows:
 
 ```csv
-"Username","Display Name","Role 1 Name","Role 2 Name",…
-"user_1","User One",1,0,…
-"Usr2#1234","User Two",0,0,…
+"User ID","Username","Display Name","Role 1 Name","Role 2 Name"
+"#12345","user_1","User One",1,0
+"#67890","Usr2#9999","User Two",0,0
 ```
 
 ### Command `/roles_restore`
