@@ -45,6 +45,11 @@ class RolesBotClient(_discord.Client):
     """
 
 
+    _CSV_ENCODING: str = 'utf_8_sig'
+    """Text encoding of CSV backups.  Include a UTF-8 byte-order marker so that
+    importing into spreadsheets accurately detects the encoding.
+    """
+
     _COLUMN_ID: str = 'User ID'
     """CSV column header for string representations of members' integer user
     IDs.
@@ -236,7 +241,7 @@ class RolesBotClient(_discord.Client):
             mtime=int(start_time.timestamp())
         ) as csv_bytes_file, _io.TextIOWrapper(
             _typing.cast(_typing.IO[bytes], csv_bytes_file),
-            encoding='utf_8', errors='strict', newline=''
+            encoding=self._CSV_ENCODING, errors='strict', newline=''
         ) as csv_file:
             csv_writer = _csv.DictWriter(csv_file, dialect='excel', fieldnames=[
                 self._COLUMN_ID, self._COLUMN_NAME, self._COLUMN_NICK,
@@ -257,7 +262,7 @@ class RolesBotClient(_discord.Client):
         # Parse gzipped CSV
         csv_gz_attachment_file = await csv_gz_attachment.to_file()
         with _gzip.open(csv_gz_attachment_file.fp, mode='rt',
-             encoding='utf_8', errors='strict', newline=''
+             encoding=self._CSV_ENCODING, errors='strict', newline=''
         ) as csv_file:
             csv_lines = _typing.cast(_typing.Iterable[str], csv_file)
             for row in _csv.DictReader(csv_lines, dialect='excel', strict=True):
