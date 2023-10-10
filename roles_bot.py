@@ -71,9 +71,8 @@ class RolesBotClient(_discord.Client):
         guild: _discord.Guild
     ) -> None:
         """Registers joined guild's slash commands with the server."""
-        guild_logger = _logging.getLogger(
+        self._guild_id_loggers[guild.id] = _logging.getLogger(
             f'{self._logger.name}.{guild.name.replace(".", "")}')
-        self._guild_id_loggers[guild.id] = guild_logger
         self._guild_id_busy[guild.id] = False
 
         # /roles_help
@@ -83,7 +82,7 @@ class RolesBotClient(_discord.Client):
             interaction: _discord.Interaction
         ) -> None:
             """Explains the usage of this bot's other commands."""
-            await self._command_roles_help(guild_logger, interaction)
+            await self._command_roles_help(guild, interaction)
 
         # /roles_backup
         @self._slash_commands.command(guild=guild)  # type: ignore[arg-type]
@@ -92,7 +91,7 @@ class RolesBotClient(_discord.Client):
             interaction: _discord.Interaction
         ) -> None:
             """Creates a backup file of members' display names and roles."""
-            await self._respond_to_long_command(guild_logger, interaction,
+            await self._respond_to_long_command(guild, interaction,
                 self._command_roles_backup)
 
         # /roles_restore <backup_file>
@@ -106,7 +105,7 @@ class RolesBotClient(_discord.Client):
             backup_csv_gz: _discord.Attachment
         ) -> None:
             """Restores members' display names and roles from a backup file."""
-            await self._respond_to_long_command(guild_logger, interaction,
+            await self._respond_to_long_command(guild, interaction,
                 self._command_roles_restore, backup_csv_gz)
 
         # /roles_update
@@ -121,15 +120,16 @@ class RolesBotClient(_discord.Client):
             """Modifies members' display names and roles based on the contents
             of a Google Sheet.
             """
-            await self._respond_to_long_command(guild_logger, interaction,
+            await self._respond_to_long_command(guild, interaction,
                 self._command_roles_update)
 
         await self._slash_commands.sync(guild=guild)
-        guild_logger.info(f'Registered commands with guild ID {guild.id:X}')
+        self._guild_id_loggers[guild.id].info(
+            f'Registered commands with guild ID {guild.id:X}')
 
 
     async def _respond_to_long_command(self,
-        logger: _logging.Logger,
+        guild: _discord.Guild,
         interaction: _discord.Interaction,
         command_callback: _typing.Callable[...,
             _typing.Awaitable[_typing.List[_discord.File]]],
@@ -138,27 +138,29 @@ class RolesBotClient(_discord.Client):
         """Responds that the command is running, and then updates that response
         with the file attachments returned by `command_callback`.
         """
+        guild_logger = self._guild_id_loggers[guild.id]
         command = _typing.cast(_discord.app_commands.Command, interaction.command)
         command_name = f'`/{command.qualified_name}` (ID {interaction.id:X})'
 
         # Acquire exclusive access
-        assert interaction.guild_id is not None
-        if self._guild_id_busy[interaction.guild_id]:
+        if self._guild_id_busy[guild.id]:
             await interaction.response.send_message(ephemeral=True,
                 content=f'{command_name} ignored while another command is running.')
             return
-        self._guild_id_busy[interaction.guild_id] = True
+        self._guild_id_busy[guild.id] = True
         try:
             # Respond with placeholder message
             message = f'{command_name} in progress…'
-            logger.info(message)
+            guild_logger.info(message)
             await interaction.response.send_message(content=message)
 
             # Execute long-running command
             attachments: _typing.List[_discord.File]
             try:
-                attachments = await command_callback(logger, interaction,
-                    *command_args)
+                assert guild == interaction.guild, (
+                    'Interaction originated from wrong guild '
+                    f'“{interaction.guild}” (Guild ID: {interaction.guild_id:x}).')
+                attachments = await command_callback(guild, *command_args)
             except Exception as ex:
                 # Embed exception in placeholder
                 message = f'{command_name} failed.'
@@ -170,16 +172,16 @@ class RolesBotClient(_discord.Client):
             else:
                 # Attach files to placeholder
                 message = f'{command_name} succeeded.'
-                logger.info(message)
+                guild_logger.info(message)
                 await interaction.edit_original_response(content=message,
                     attachments=attachments)
 
         finally:  # Release exclusive access
-            self._guild_id_busy[interaction.guild_id] = False
+            self._guild_id_busy[guild.id] = False
 
 
     async def _command_roles_help(self,
-        logger: _logging.Logger,
+        guild: _discord.Guild,
         interaction: _discord.Interaction
     ) -> None:
         """Explains the usage of this bot's other commands."""
@@ -187,8 +189,7 @@ class RolesBotClient(_discord.Client):
             'You have been `roles_help`ed.', ephemeral=True)
 
     async def _command_roles_backup(self,
-        logger: _logging.Logger,
-        interaction: _discord.Interaction
+        guild: _discord.Guild
     ) -> _typing.List[_discord.File]:
         """Creates a backup file of members' display names and roles."""
         start_time = _datetime.datetime.now()
@@ -213,25 +214,25 @@ class RolesBotClient(_discord.Client):
         return [_discord.File(csv_gz_file, filename=filename)]
 
     async def _command_roles_restore(self,
-        logger: _logging.Logger,
-        interaction: _discord.Interaction,
+        guild: _discord.Guild,
         csv_gz_attachment: _discord.Attachment
     ) -> _typing.List[_discord.File]:
         """Restores members' display names and roles from a backup file."""
+        guild_logger = self._guild_id_loggers[guild.id]
+
         csv_gz_attachment_file = await csv_gz_attachment.to_file()
         with _gzip.open(csv_gz_attachment_file.fp, mode='rt',
              encoding='utf_8', errors='strict', newline=''
         ) as csv_file:
             csv_lines = _typing.cast(_typing.Iterable[str], csv_file)
             for row in _csv.DictReader(csv_lines, dialect='excel', strict=True):
-                logger.info(row)
+                guild_logger.info(row)
 
         csv_gz_attachment_file.fp.seek(0)
         return [csv_gz_attachment_file]
 
     async def _command_roles_update(self,
-        logger: _logging.Logger,
-        interaction: _discord.Interaction
+        guild: _discord.Guild
     ) -> _typing.List[_discord.File]:
         """Modifies members' display names and roles based on the contents
         of a Google Sheet.
