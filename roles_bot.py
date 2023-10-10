@@ -251,11 +251,14 @@ def main() -> None:
     """Entry point that logs the bot into Discord and executes commands until
     closed.
     """
+    token_env_name = 'SCHS_ROBOTICS_ROLES_BOT_TOKEN'
     try:
-        bot_token = _os.environ['SCHS_ROBOTICS_ROLES_BOT_TOKEN']
+        bot_token = _os.environ[token_env_name]
     except KeyError:
+        print(f'Bot token not found in environment variable “{token_env_name}”.')
+
         import getpass
-        bot_token = getpass.getpass(prompt='Bot token (input hidden): ')
+        bot_token = getpass.getpass(prompt='Enter bot token (input hidden): ')
 
     RolesBotClient().run(token=bot_token)
 
