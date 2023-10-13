@@ -4,7 +4,7 @@ commands until closed.
 """
 
 
-__version__ = '0.0.5'
+__version__ = '0.0.6'
 
 __authors__ = ['James Abernathy']
 __copyright__ = 'Copyright © 2023 James Abernathy'
@@ -18,9 +18,19 @@ import gzip as _gzip
 import io as _io
 import logging as _logging
 import os as _os
+import re as _re
 import typing as _typing
 
 import discord as _discord
+
+
+
+
+class CsvContentsError(ValueError):
+    """Error raised when a backup CSV was missing rows or had values in the
+    wrong format.
+    """
+    pass
 
 
 
@@ -50,15 +60,15 @@ class RolesBotClient(_discord.Client):
     importing into spreadsheets accurately detects the encoding.
     """
 
-    _COLUMN_ID: str = 'User ID'
+    _COLUMN_USER_ID: str = 'User ID'
     """CSV column header for string representations of members' integer user
     IDs.
     """
 
-    _COLUMN_NAME: str = 'Username'
+    _COLUMN_USERNAME: str = 'Username'
     """CSV column header for members' login usernames or discriminators."""
 
-    _COLUMN_NICK: str = 'Display Name'
+    _COLUMN_NICKNAME: str = 'Display Name'
     """CSV column header for members' server-specific display names."""
 
 
@@ -145,6 +155,125 @@ class RolesBotClient(_discord.Client):
             f'Registered commands (Guild ID: {guild.id:x}).')
 
 
+    class _GuildMember(object):
+        """Stores relevant, mutable guild member details loaded from a guild or
+        backup file.
+        """
+
+        _user_id: int
+        """Backing field of read-only `user_id`."""
+
+        username: str
+        """Discord login name with or without a discriminator
+        like ``#9999``.  Users may change this, so see `user_id` for a
+        more permanent identifier.
+        """
+
+        nickname: _typing.Optional[str]
+        """Server-specific name visible in the member list, or ``None`` if not
+        customized in which case the display name falls back to a Discord-global
+        display name or `username`.
+        """
+
+        role_names: _typing.Set[str]
+        """The names of all assigned roles."""
+
+        def __init__(self,
+            user_id: int,
+            username: str,
+            nickname: _typing.Optional[str],
+            role_names: _typing.Set[str]
+        ) -> None:
+            self._user_id = user_id
+            self.username = username
+            self.nickname = nickname
+            self.role_names = role_names
+
+        @classmethod
+        def create_from_member(cls,
+            member: _discord.Member,
+            affected_roles: _typing.List[_discord.Role]
+        ) -> _typing.Self:
+            """Factory to construct a member queried from a Discord server."""
+            return cls(user_id=member.id,
+                username=str(member),  # New-style username or discriminator
+                nickname=member.nick,
+                role_names=set(role.name for role in affected_roles
+                    if member.get_role(role.id) is not None))
+
+        @classmethod
+        def decode_csv_row(cls,
+            member_row: _typing.Dict[str, str]
+        ) -> _typing.Self:
+            """Factory to construct a member decoded from a backup CSV.  See
+            `encode_csv_row`.
+            """
+            member_row = member_row.copy()
+            try:
+                user_id_text = member_row.pop(RolesBotClient._COLUMN_USER_ID)
+                username = member_row.pop(RolesBotClient._COLUMN_USERNAME)
+                nickname = member_row.pop(RolesBotClient._COLUMN_NICKNAME) or None
+            except KeyError as e:
+                raise CsvContentsError(f'Missing column {e.args[0]!r} in '
+                    f'roles-backup CSV file.') from e
+
+            # Parse ID
+            try:
+                user_id = int(_re.fullmatch(r'^#(?P<hex_digits>[0-9a-f]+)$',
+                    user_id_text, _re.ASCII | _re.IGNORECASE
+                    ).group('hex_digits'),  # type: ignore[union-attr]
+                    base=16)
+            except (AttributeError, ValueError) as e:
+                raise CsvContentsError('Invalid '
+                    f'{RolesBotClient._COLUMN_USER_ID!r} column value '
+                    f'{user_id_text!r} in roles-backup CSV file.') from e
+
+            # Parse roles
+            role_names = set()
+            for role_name, membership_text in member_row.items():
+                try:
+                    membership_int = int(membership_text)
+                except ValueError as e:
+                    raise CsvContentsError('Invalid decimal integer '
+                        f'{membership_text!r} in user ID {user_id_text}\'s '
+                        f'role column {role_name!r}.') from e
+                if not (0 <= membership_int <= 1):
+                    raise CsvContentsError(f'User ID {user_id_text}\'s role '
+                        f'column {role_name!r} membership flag {membership_int} '
+                        'must be either 0 or 1.')
+                if bool(membership_int):
+                    role_names.add(role_name)
+
+            return cls(user_id=user_id,
+                username=username, nickname=nickname, role_names=role_names)
+
+        @property
+        def user_id(self) -> int:
+            """Globaly unique Discord user ID that will never change."""
+            return self._user_id
+
+        def copy(self) -> _typing.Self:
+            """Creates a modifiable deep copy of this member."""
+            return type(self)(
+                user_id=self.user_id, username=self.username,
+                nickname=self.nickname, role_names=self.role_names.copy())
+
+        def encode_csv_row(self,
+            affected_roles: _typing.List[_discord.Role]
+        ) -> _typing.Dict[str, str]:
+            """Represents this member as a CSV row to be backed up.  See
+            `decode_csv_row`.
+            """
+            return {
+                # Prefix ID so spreadsheets interpret huge number as lossless text.
+                RolesBotClient._COLUMN_USER_ID: f'#{self.user_id}',
+                RolesBotClient._COLUMN_USERNAME: self.username,
+                RolesBotClient._COLUMN_NICKNAME: self.nickname or '',
+                # 0/1 booleans for each role
+                **{role.name: str(int(role.name in self.role_names))
+                    for role in affected_roles}}
+
+
     async def _respond_to_long_command(self,
         guild: _discord.Guild,
         interaction: _discord.Interaction,
@@ -218,39 +347,13 @@ class RolesBotClient(_discord.Client):
         """Creates a backup file of members' display names and roles."""
         start_time = _datetime.datetime.now()
 
-        # Query details
-        roles = [role for role in reversed(guild.roles)  # Most-privileged first
-            if role.is_assignable()]  # Restorable by bot
-        members = [member
-            async for member in guild.fetch_members(limit=None)
-            if member.top_role < guild.self_role]  # Restorable by bot
-        member_rows = [{
-            # Prefix ID so spreadsheets interpret huge number as lossless text.
-            self._COLUMN_ID: f'#{member.id}',
-            self._COLUMN_NAME: f'{member}',
-            self._COLUMN_NICK: member.nick or '',
-            # 0/1 booleans for each role
-            **{role.name: int(member.get_role(role.id) is not None)
-                for role in roles}}
-            for member in sorted(members, key=lambda member: member.id)]
+        affected_roles = self._get_affected_roles(guild)
+        affected_members = await self._query_affected_members(guild, affected_roles)
 
-        # Format as gzipped CSV
-        filename = f'Roles_Backup_{start_time:%Y-%m-%dT%H-%M-%S}.csv.gz'
-        csv_gz_file = _io.BytesIO()
-        with _gzip.GzipFile(mode='wb', fileobj=csv_gz_file, filename=filename,
-            mtime=int(start_time.timestamp())
-        ) as csv_bytes_file, _io.TextIOWrapper(
-            _typing.cast(_typing.IO[bytes], csv_bytes_file),
-            encoding=self._CSV_ENCODING, errors='strict', newline=''
-        ) as csv_file:
-            csv_writer = _csv.DictWriter(csv_file, dialect='excel', fieldnames=[
-                self._COLUMN_ID, self._COLUMN_NAME, self._COLUMN_NICK,
-                *(role.name for role in roles)])
-            csv_writer.writeheader()
-            csv_writer.writerows(member_rows)
-        csv_gz_file.seek(0)
-
-        return [_discord.File(csv_gz_file, filename=filename)]
+        return [self._encode_gzipped_csv(
+            filename=f'Roles_Backup_{start_time:%Y-%m-%dT%H-%M-%S}.csv.gz',
+            creation_date=start_time,
+            roles=affected_roles, members=affected_members)]
 
     async def _command_roles_restore(self,
         guild: _discord.Guild,
@@ -259,16 +362,18 @@ class RolesBotClient(_discord.Client):
         """Restores members' display names and roles from a backup file."""
         guild_logger = self._guild_id_loggers[guild.id]
 
-        # Parse gzipped CSV
+        # Parse desired state
         csv_gz_attachment_file = await csv_gz_attachment.to_file()
-        with _gzip.open(csv_gz_attachment_file.fp, mode='rt',
-             encoding=self._CSV_ENCODING, errors='strict', newline=''
-        ) as csv_file:
-            csv_lines = _typing.cast(_typing.Iterable[str], csv_file)
-            for row in _csv.DictReader(csv_lines, dialect='excel', strict=True):
-                guild_logger.info(row)
-        csv_gz_attachment_file.fp.seek(0)
+        members_new = self._decode_gzipped_csv(csv_gz_attachment_file)
 
+        # Get current state
+        affected_roles = self._get_affected_roles(guild)
+        affected_members = await self._query_affected_members(guild, affected_roles)
+
+        # Apply changes
+        # TODO
+
+        # Reattach input file
         return [csv_gz_attachment_file]
 
     async def _command_roles_update(self,
@@ -284,6 +389,79 @@ class RolesBotClient(_discord.Client):
                 f'Roles_Backup_{start_time:%Y-%m-%dT%H-%M-%S}.csv.gz'),
             _discord.File(_io.BytesIO(b''), filename=
                 f'Roles_Update_{start_time:%Y-%m-%dT%H-%M-%S}.csv.gz')]
+
+
+    def _get_affected_roles(self,
+        guild: _discord.Guild
+    ) -> _typing.List[_discord.Role]:
+        """Lists roles from `guild` that the bot can affect, ordered by most
+        to least privileged.
+        """
+        roles_list = [role for role in reversed(guild.roles)
+            if role.is_assignable()]  # Restorable by bot
+
+        return roles_list
+
+    async def _query_affected_members(self,
+        guild: _discord.Guild,
+        affected_roles: _typing.List[_discord.Role]
+    ) -> _typing.List[_GuildMember]:
+        """Gets `guild`'s members that the bot can affect, including their
+        membership in `affected_roles`.
+        """
+        return [self._GuildMember.create_from_member(member, affected_roles)
+            async for member in guild.fetch_members(limit=None)
+            if member.top_role < guild.self_role]  # Restorable by bot
+
+
+    def _encode_gzipped_csv(self,
+        filename: str,
+        creation_date: _datetime.datetime,
+        roles: _typing.List[_discord.Role],
+        members: _typing.List[_GuildMember]
+    ) -> _discord.File:
+        """Formats rows of `members` with columns including `roles`-membership
+        as a gzip-compressed CSV attachment named `filename`.
+        """
+        csv_gz_file = _io.BytesIO()
+        with _gzip.GzipFile(mode='wb', fileobj=csv_gz_file, filename=filename,
+            mtime=int(creation_date.timestamp())
+        ) as csv_bytes_file:
+            with _io.TextIOWrapper(_typing.cast(_typing.IO[bytes], csv_bytes_file),
+                encoding=self._CSV_ENCODING, errors='strict', newline=''
+            ) as csv_file:
+                csv_writer = _csv.DictWriter(csv_file, dialect='excel', fieldnames=[
+                    self._COLUMN_USER_ID, self._COLUMN_USERNAME, self._COLUMN_NICKNAME,
+                    *(role.name for role in roles)])
+
+                csv_writer.writeheader()
+                csv_writer.writerows(member.encode_csv_row(roles)
+                    for member in sorted(members, key=lambda member: member.user_id))
+
+        # Rewind so Discord can read into an attachment.
+        csv_gz_file.seek(0)
+
+        return _discord.File(csv_gz_file, filename=filename)
+
+    def _decode_gzipped_csv(self,
+        csv_gz_file: _discord.File
+    ) -> _typing.List[_GuildMember]:
+        """Parses guild member data out of a `csv_gz_file` created by
+        `_encode_gzipped_csv`.
+        """
+        with _gzip.open(csv_gz_file.fp, mode='rt',
+             encoding=self._CSV_ENCODING, errors='strict', newline=''
+        ) as csv_file:
+            csv_lines = _typing.cast(_typing.Iterable[str], csv_file)
+
+            members = [self._GuildMember.decode_csv_row(member_row)
+                for member_row in _csv.DictReader(csv_lines,
+                    dialect='excel', strict=True)]
+
+        # Rewind so Discord can read into an attachment.
+        csv_gz_file.fp.seek(0)
+
+        return members
 
 
 
