@@ -12,6 +12,7 @@ __license__ = 'MIT'
 
 
 import asyncio as _asyncio
+import collections as _collections
 import csv as _csv
 import datetime as _datetime
 import gzip as _gzip
@@ -46,29 +47,29 @@ class RolesBotClient(_discord.Client):
     _slash_commands: _discord.app_commands.CommandTree
     """Tree of available slash commands."""
 
-    _guild_id_loggers: _typing.Dict[int, _logging.Logger]
+    _guild_id_loggers: dict[int, _logging.Logger]
     """Server-specific loggers indexed by guild ID."""
 
-    _guild_id_busy: _typing.Dict[int, bool]
+    _guild_id_busy: dict[int, bool]
     """Server-specific busy flags indexed by guild ID and set ``true`` during
     backup, restore, and update operations.
     """
 
 
-    _CSV_ENCODING: str = 'utf_8_sig'
+    _CSV_ENCODING: _typing.Final[str] = 'utf_8_sig'
     """Text encoding of CSV backups.  Include a UTF-8 byte-order marker so that
     importing into spreadsheets accurately detects the encoding.
     """
 
-    _COLUMN_USER_ID: str = 'User ID'
+    _COLUMN_USER_ID: _typing.Final[str] = 'User ID'
     """CSV column header for string representations of members' integer user
     IDs.
     """
 
-    _COLUMN_USERNAME: str = 'Username'
+    _COLUMN_USERNAME: _typing.Final[str] = 'Username'
     """CSV column header for members' login usernames or discriminators."""
 
-    _COLUMN_NICKNAME: str = 'Display Name'
+    _COLUMN_NICKNAME: _typing.Final[str] = 'Display Name'
     """CSV column header for members' server-specific display names."""
 
 
@@ -175,14 +176,14 @@ class RolesBotClient(_discord.Client):
         display name or `username`.
         """
 
-        role_names: _typing.Set[str]
+        role_names: set[str]
         """The names of all assigned roles."""
 
         def __init__(self,
             user_id: int,
             username: str,
             nickname: _typing.Optional[str],
-            role_names: _typing.Set[str]
+            role_names: set[str]
         ) -> None:
             self._user_id = user_id
             self.username = username
@@ -192,7 +193,7 @@ class RolesBotClient(_discord.Client):
         @classmethod
         def create_from_member(cls,
             member: _discord.Member,
-            affected_roles: _typing.List[_discord.Role]
+            affected_roles: _collections.abc.Iterable[_discord.Role]
         ) -> _typing.Self:
             """Factory to construct a member queried from a Discord server."""
             return cls(user_id=member.id,
@@ -203,7 +204,7 @@ class RolesBotClient(_discord.Client):
 
         @classmethod
         def decode_csv_row(cls,
-            member_row: _typing.Dict[str, str]
+            member_row: dict[str, str]
         ) -> _typing.Self:
             """Factory to construct a member decoded from a backup CSV.  See
             `encode_csv_row`.
@@ -259,8 +260,8 @@ class RolesBotClient(_discord.Client):
                 nickname=self.nickname, role_names=self.role_names.copy())
 
         def encode_csv_row(self,
-            affected_roles: _typing.List[_discord.Role]
-        ) -> _typing.Dict[str, str]:
+            affected_roles: _collections.abc.Iterable[_discord.Role]
+        ) -> dict[str, str]:
             """Represents this member as a CSV row to be backed up.  See
             `decode_csv_row`.
             """
@@ -278,7 +279,7 @@ class RolesBotClient(_discord.Client):
         guild: _discord.Guild,
         interaction: _discord.Interaction,
         command_callback: _typing.Callable[...,
-            _typing.Awaitable[_typing.List[_discord.File]]],
+            _typing.Awaitable[list[_discord.File]]],
         *command_args: _typing.Any
     ) -> None:
         """Responds that the command is running, and then updates that response
@@ -302,7 +303,6 @@ class RolesBotClient(_discord.Client):
             await interaction.response.send_message(content=message)
 
             # Execute long-running command
-            attachments: _typing.List[_discord.File]
             try:
                 assert guild == interaction.guild, (
                     'Interaction originated from wrong guild '
@@ -343,7 +343,7 @@ class RolesBotClient(_discord.Client):
 
     async def _command_roles_backup(self,
         guild: _discord.Guild
-    ) -> _typing.List[_discord.File]:
+    ) -> list[_discord.File]:
         """Creates a backup file of members' display names and roles."""
         start_time = _datetime.datetime.now()
 
@@ -358,7 +358,7 @@ class RolesBotClient(_discord.Client):
     async def _command_roles_restore(self,
         guild: _discord.Guild,
         csv_gz_attachment: _discord.Attachment
-    ) -> _typing.List[_discord.File]:
+    ) -> list[_discord.File]:
         """Restores members' display names and roles from a backup file."""
         guild_logger = self._guild_id_loggers[guild.id]
 
@@ -378,7 +378,7 @@ class RolesBotClient(_discord.Client):
 
     async def _command_roles_update(self,
         guild: _discord.Guild
-    ) -> _typing.List[_discord.File]:
+    ) -> list[_discord.File]:
         """Modifies members' display names and roles based on the contents
         of a Google Sheet.
         """
@@ -393,7 +393,7 @@ class RolesBotClient(_discord.Client):
 
     def _get_affected_roles(self,
         guild: _discord.Guild
-    ) -> _typing.List[_discord.Role]:
+    ) -> list[_discord.Role]:
         """Lists roles from `guild` that the bot can affect, ordered by most
         to least privileged.
         """
@@ -404,8 +404,8 @@ class RolesBotClient(_discord.Client):
 
     async def _query_affected_members(self,
         guild: _discord.Guild,
-        affected_roles: _typing.List[_discord.Role]
-    ) -> _typing.List[_GuildMember]:
+        affected_roles: _collections.abc.Iterable[_discord.Role]
+    ) -> list[_GuildMember]:
         """Gets `guild`'s members that the bot can affect, including their
         membership in `affected_roles`.
         """
@@ -417,8 +417,8 @@ class RolesBotClient(_discord.Client):
     def _encode_gzipped_csv(self,
         filename: str,
         creation_date: _datetime.datetime,
-        roles: _typing.List[_discord.Role],
-        members: _typing.List[_GuildMember]
+        roles: _collections.abc.Iterable[_discord.Role],
+        members: _collections.abc.Iterable[_GuildMember]
     ) -> _discord.File:
         """Formats rows of `members` with columns including `roles`-membership
         as a gzip-compressed CSV attachment named `filename`.
@@ -445,14 +445,14 @@ class RolesBotClient(_discord.Client):
 
     def _decode_gzipped_csv(self,
         csv_gz_file: _discord.File
-    ) -> _typing.List[_GuildMember]:
+    ) -> list[_GuildMember]:
         """Parses guild member data out of a `csv_gz_file` created by
         `_encode_gzipped_csv`.
         """
         with _gzip.open(csv_gz_file.fp, mode='rt',
              encoding=self._CSV_ENCODING, errors='strict', newline=''
         ) as csv_file:
-            csv_lines = _typing.cast(_typing.Iterable[str], csv_file)
+            csv_lines = _typing.cast(_collections.abc.Iterable[str], csv_file)
 
             members = [self._GuildMember.decode_csv_row(member_row)
                 for member_row in _csv.DictReader(csv_lines,
