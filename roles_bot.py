@@ -59,7 +59,7 @@ class RolesBotClient(_discord.Client):
     """Server-specific loggers indexed by guild ID."""
 
     _guild_id_busy: dict[int, bool]
-    """Server-specific busy flags indexed by guild ID and set ``true`` during
+    """Server-specific busy flags indexed by guild ID and set ``True`` during
     backup, restore, and update operations.
     """
 
@@ -106,7 +106,7 @@ class RolesBotClient(_discord.Client):
     async def on_guild_available(self,
         guild: _discord.Guild
     ) -> None:
-        """Registers joined guild's slash commands with the server."""
+        """Registers the joined *guild*'s slash commands with the server."""
         self._guild_id_loggers[guild.id] = _logging.getLogger(
             f'{self._logger.name}.{guild.name.replace(".", "")}')
         self._guild_id_busy[guild.id] = False
@@ -170,18 +170,18 @@ class RolesBotClient(_discord.Client):
         """
 
         _user_id: int
-        """Backing field of read-only `user_id`."""
+        """Backing field of read-only :func:`.user_id`."""
 
         username: str
         """Discord login name with or without a discriminator
-        like ``#9999``.  Users may change this, so see `user_id` for a
+        like ``#9999``.  Users may change this, so see :func:`.user_id` for a
         more permanent identifier.
         """
 
         nickname: _typing.Optional[str]
         """Server-specific name visible in the member list, or ``None`` if not
         customized in which case the display name falls back to a Discord-global
-        display name or `username`.
+        display name or :attr:`username`.
         """
 
         role_names: set[str]
@@ -215,7 +215,7 @@ class RolesBotClient(_discord.Client):
             member_row: dict[str, str]
         ) -> _typing.Self:
             """Factory to construct a member decoded from a backup CSV.  See
-            `encode_csv_row`.
+            :func:`.encode_csv_row`.
             """
             member_row = member_row.copy()
             try:
@@ -271,7 +271,7 @@ class RolesBotClient(_discord.Client):
             affected_roles: _collections.abc.Iterable[_discord.Role]
         ) -> dict[str, str]:
             """Represents this member as a CSV row to be backed up.  See
-            `decode_csv_row`.
+            :func:`.decode_csv_row`.
             """
             return {
                 # Prefix ID so spreadsheets interpret huge number as lossless text.
@@ -291,7 +291,7 @@ class RolesBotClient(_discord.Client):
         *command_args: _typing.Any
     ) -> None:
         """Responds that the command is running, and then updates that response
-        with the file attachments returned by `command_callback`.
+        with the file attachments returned by *command_callback*.
         """
         guild_logger = self._guild_id_loggers[guild.id]
         command = _typing.cast(_discord.app_commands.Command, interaction.command)
@@ -402,7 +402,7 @@ class RolesBotClient(_discord.Client):
     def _get_affected_roles(self,
         guild: _discord.Guild
     ) -> list[_discord.Role]:
-        """Lists roles from `guild` that the bot can affect, ordered by most
+        """Lists roles from *guild* that the bot can affect, ordered by most
         to least privileged.
         """
         roles_list = [role for role in reversed(guild.roles)
@@ -414,8 +414,8 @@ class RolesBotClient(_discord.Client):
         guild: _discord.Guild,
         affected_roles: _collections.abc.Iterable[_discord.Role]
     ) -> list[_GuildMember]:
-        """Gets `guild`'s members that the bot can affect, including their
-        membership in `affected_roles`.
+        """Gets *guild*'s members that the bot can affect, including their
+        membership in *affected_roles*.
         """
         return [self._GuildMember.create_from_member(member, affected_roles)
             async for member in guild.fetch_members(limit=None)
@@ -428,8 +428,8 @@ class RolesBotClient(_discord.Client):
         roles: _collections.abc.Iterable[_discord.Role],
         members: _collections.abc.Iterable[_GuildMember]
     ) -> _discord.File:
-        """Formats rows of `members` with columns including `roles`-membership
-        as a gzip-compressed CSV attachment named `filename`.
+        """Formats rows of *members* with columns including *roles*-membership
+        as a gzip-compressed CSV attachment named *filename*.
         """
         csv_gz_file = _io.BytesIO()
         with _gzip.GzipFile(mode='wb', fileobj=csv_gz_file, filename=filename,
@@ -454,8 +454,8 @@ class RolesBotClient(_discord.Client):
     def _decode_gzipped_csv(self,
         csv_gz_file: _discord.File
     ) -> list[_GuildMember]:
-        """Parses guild member data out of a `csv_gz_file` created by
-        `_encode_gzipped_csv`.
+        """Parses guild member data out of a *csv_gz_file* created by
+        :func:`._encode_gzipped_csv`.
         """
         with _gzip.open(csv_gz_file.fp, mode='rt',
              encoding=self._CSV_ENCODING, errors='strict', newline=''
