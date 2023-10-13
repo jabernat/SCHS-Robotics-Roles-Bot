@@ -27,6 +27,14 @@ import discord as _discord
 
 
 
+TOKEN_ENV_NAME: _typing.Final[str] = 'SCHS_ROBOTICS_ROLES_BOT_TOKEN'
+"""Environment variable name that :func:`.main` will attempt to read its Discord
+bot token from.
+"""
+
+
+
+
 class CsvContentsError(ValueError):
     """Error raised when a backup CSV was missing rows or had values in the
     wrong format.
@@ -467,14 +475,13 @@ class RolesBotClient(_discord.Client):
 
 
 def main() -> None:
-    """Entry point that logs the bot into Discord and executes commands until
-    closed.
+    """Entry point that acquires a Discord bot token, logs in, and executes
+    commands until closed.
     """
-    token_env_name = 'SCHS_ROBOTICS_ROLES_BOT_TOKEN'
     try:
-        bot_token = _os.environ[token_env_name]
+        bot_token = _os.environ[TOKEN_ENV_NAME]
     except KeyError:
-        print(f'Bot token not found in environment variable “{token_env_name}”.')
+        print(f'Bot token not found in environment variable “{TOKEN_ENV_NAME}”.')
 
         import getpass
         bot_token = getpass.getpass(prompt='Enter bot token (input hidden): ')
