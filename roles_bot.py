@@ -80,6 +80,12 @@ class RolesBotClient(_discord.Client):
     _COLUMN_NICKNAME: _typing.Final[str] = 'Display Name'
     """CSV column header for members' server-specific display names."""
 
+    _INVALID_ROLE_NAMES: _typing.Final[frozenset[str]] = frozenset([
+        _COLUMN_USER_ID, _COLUMN_USERNAME, _COLUMN_NICKNAME])
+    """Role names that can't be represented due to how :func:`csv.DictReader`
+    and :func:`csv.DictWriter` coallesce duplicate column names.  See :gh:`1`.
+    """
+
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs,
@@ -407,6 +413,19 @@ class RolesBotClient(_discord.Client):
         """
         roles_list = [role for role in reversed(guild.roles)
             if role.is_assignable()]  # Restorable by bot
+
+        roles_set = set(roles_list)
+        if len(roles_list) != len(roles_set):
+            duplicate_roles = [role for role, repetitions
+                in _collections.Counter(roles_list).items() if repetitions > 1]
+            raise CsvContentsError('Server contains roles with duplicate names: '
+                f'{sorted(duplicate_roles)}.')
+
+        # Check if DictReader/DictWriter will fail (GitHub issue #1).
+        invalid_roles = roles_set & self._INVALID_ROLE_NAMES
+        if invalid_roles:
+            raise CsvContentsError('Server contains roles with invalid names: '
+                f'{sorted(invalid_roles)}.')
 
         return roles_list
 
