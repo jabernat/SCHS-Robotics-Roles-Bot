@@ -500,23 +500,25 @@ class RolesBotClient(_discord.Client):
         """Lists roles from *guild* that the bot can affect, ordered by most
         to least privileged.
         """
-        roles_list = [role for role in reversed(guild.roles)
+        affected_roles = [role for role in reversed(guild.roles)
             if role.is_assignable()]  # Restorable by bot
 
-        roles_set = set(roles_list)
-        if len(roles_list) != len(roles_set):
-            duplicate_roles = [role for role, repetitions
-                in _collections.Counter(roles_list).items() if repetitions > 1]
+        role_names_list = [role.name for role in affected_roles]
+        role_names_set = set(role_names_list)
+        if len(role_names_list) != len(role_names_set):
+            duplicate_role_names = [role_name for role_name, repetitions
+                in _collections.Counter(role_names_list).items()
+                if repetitions > 1]
             raise CsvContentsError('Server contains roles with duplicate names: '
-                f'{sorted(duplicate_roles)}.')
+                f'{sorted(duplicate_role_names)}.')
 
         # Check if DictReader/DictWriter will fail (GitHub issue #1).
-        invalid_roles = roles_set & self._INVALID_ROLE_NAMES
-        if invalid_roles:
+        invalid_role_names = role_names_set & self._INVALID_ROLE_NAMES
+        if invalid_role_names:
             raise CsvContentsError('Server contains roles with invalid names: '
-                f'{sorted(invalid_roles)}.')
+                f'{sorted(invalid_role_names)}.')
 
-        return roles_list
+        return affected_roles
 
     async def _query_affected_members(self,
         guild: _discord.Guild,
