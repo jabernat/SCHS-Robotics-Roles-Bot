@@ -96,6 +96,7 @@ class RolesBotClient(_discord.Client):
 
         self._logger = _logging.getLogger(
             f'{_discord.__name__}.{type(self).__name__}')
+        self._logger.setLevel(_logging.DEBUG)
 
         self._guild_id_loggers = dict()
         self._guild_id_busy = dict()
@@ -229,7 +230,7 @@ class RolesBotClient(_discord.Client):
                 username = member_row.pop(RolesBotClient._COLUMN_USERNAME)
                 nickname = member_row.pop(RolesBotClient._COLUMN_NICKNAME) or None
             except KeyError as e:
-                raise CsvContentsError(f'Missing column {e.args[0]!r} in '
+                raise CsvContentsError(f'Missing column “{e.args[0]}” in '
                     f'roles-backup CSV file.') from e
 
             # Parse ID
@@ -240,8 +241,8 @@ class RolesBotClient(_discord.Client):
                     base=16)
             except (AttributeError, ValueError) as e:
                 raise CsvContentsError('Invalid '
-                    f'{RolesBotClient._COLUMN_USER_ID!r} column value '
-                    f'{user_id_text!r} in roles-backup CSV file.') from e
+                    f'“{RolesBotClient._COLUMN_USER_ID}” column value '
+                    f'“{user_id_text}” in roles-backup CSV file.') from e
 
             # Parse roles
             role_names = set()
@@ -250,11 +251,11 @@ class RolesBotClient(_discord.Client):
                     membership_int = int(membership_text)
                 except ValueError as e:
                     raise CsvContentsError('Invalid decimal integer '
-                        f'{membership_text!r} in user ID {user_id_text}\'s '
-                        f'role column {role_name!r}.') from e
+                        f'“{membership_text}” in user ID {user_id_text}\'s '
+                        f'role column “{role_name}”.') from e
                 if not (0 <= membership_int <= 1):
                     raise CsvContentsError(f'User ID {user_id_text}\'s role '
-                        f'column {role_name!r} membership flag {membership_int} '
+                        f'column “{role_name}” membership flag {membership_int} '
                         'must be either 0 or 1.')
                 if bool(membership_int):
                     role_names.add(role_name)
@@ -359,14 +360,18 @@ class RolesBotClient(_discord.Client):
         guild: _discord.Guild
     ) -> list[_discord.File]:
         """Creates a backup file of members' display names and roles."""
+        guild_logger = self._guild_id_loggers[guild.id]
         start_time = _datetime.datetime.now()
+        backup_filename = f'Roles_Backup_{start_time:%Y-%m-%dT%H-%M-%S}.csv.gz'
 
+        guild_logger.debug('Querying current members and roles…')
         affected_roles = self._get_affected_roles(guild)
         affected_members = await self._query_affected_members(guild, affected_roles)
 
+        guild_logger.debug(f'Encoding {len(affected_members)} members with '
+            f'{len(affected_roles)} possible roles into “{backup_filename}”…')
         return [self._encode_gzipped_csv(
-            filename=f'Roles_Backup_{start_time:%Y-%m-%dT%H-%M-%S}.csv.gz',
-            creation_date=start_time,
+            filename=backup_filename, creation_date=start_time,
             roles=affected_roles, members=affected_members)]
 
     async def _command_roles_restore(self,
@@ -377,10 +382,12 @@ class RolesBotClient(_discord.Client):
         guild_logger = self._guild_id_loggers[guild.id]
 
         # Parse desired state
+        guild_logger.debug(f'Decoding “{csv_gz_attachment.filename}”…')
         csv_gz_attachment_file = await csv_gz_attachment.to_file()
         members_new = self._decode_gzipped_csv(csv_gz_attachment_file)
 
         # Get current state
+        guild_logger.debug('Querying current members and roles…')
         affected_roles = self._get_affected_roles(guild)
         affected_members = await self._query_affected_members(guild, affected_roles)
 
