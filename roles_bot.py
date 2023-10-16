@@ -4,7 +4,7 @@ commands until closed.
 """
 
 
-__version__ = '0.0.6'
+__version__ = '0.0.7'
 
 __authors__ = ['James Abernathy']
 __copyright__ = 'Copyright © 2023 James Abernathy'
@@ -143,13 +143,19 @@ class RolesBotClient(_discord.Client):
         @_discord.app_commands.default_permissions(
             manage_nicknames=True,
             manage_roles=True)
+        @_discord.app_commands.describe(
+            backup_csv_gz='The gzipped CSV from `/roles_backup` to restore '
+                'roles from.',
+            dry_run='If enabled, only logs changes without applying them.  '
+                'Disabled by default.')
         async def roles_restore(
             interaction: _discord.Interaction,
-            backup_csv_gz: _discord.Attachment
+            backup_csv_gz: _discord.Attachment,
+            dry_run: bool = False
         ) -> None:
             """Restores members' display names and roles from a backup file."""
             await self._respond_to_long_command(guild, interaction,
-                self._command_roles_restore, backup_csv_gz)
+                self._command_roles_restore, backup_csv_gz, dry_run)
 
         # /roles_update
         @self._slash_commands.command(guild=guild)  # type: ignore[arg-type]
@@ -389,7 +395,8 @@ class RolesBotClient(_discord.Client):
 
     async def _command_roles_restore(self,
         guild: _discord.Guild,
-        csv_gz_attachment: _discord.Attachment
+        csv_gz_attachment: _discord.Attachment,
+        dry_run: bool = False
     ) -> list[_discord.File]:
         """Restores members' display names and roles from a backup file."""
         guild_logger = self._guild_id_loggers[guild.id]
@@ -397,15 +404,77 @@ class RolesBotClient(_discord.Client):
         # Parse desired state
         guild_logger.debug(f'Decoding “{csv_gz_attachment.filename}”…')
         csv_gz_attachment_file = await csv_gz_attachment.to_file()
-        members_new = self._decode_gzipped_csv(csv_gz_attachment_file)
+        backup_members_by_id = {backup_member.user_id: backup_member
+            for backup_member in self._decode_gzipped_csv(csv_gz_attachment_file)}
 
         # Get current state
         guild_logger.debug('Querying current members and roles…')
         affected_roles = self._get_affected_roles(guild)
+        affected_role_names = set(role.name for role in affected_roles)
+        affected_roles_by_name = {role.name: role for role in affected_roles}
         affected_members = await self._query_affected_members(guild, affected_roles)
 
+        # Ignore roles that no longer exist.
+        missing_role_names = set()
+        for backup_member in backup_members_by_id.values():
+            missing_role_names.update(
+                backup_member.role_names - affected_role_names)
+            backup_member.role_names &= affected_role_names
+        if missing_role_names:
+            guild_logger.warning('Some roles from the backup no longer exist '
+                f'or cannot be restored: {sorted(missing_role_names)}.')
+
         # Apply changes
-        # TODO
+        guild_logger.debug(f'Applying changes (`dry_run`={dry_run})…')
+        reason = f'Restored role backup “{csv_gz_attachment.filename}”.'
+        for affected_member, backup_member in (
+            (affected_member, backup_members_by_id[affected_member.user_id])
+            for affected_member in sorted(affected_members,
+                key=lambda affected_member: affected_member.user_id)
+            if affected_member.user_id in backup_members_by_id
+        ):
+            assert affected_member.model is not None
+            username = (f'user “{affected_member.username}” '
+                f'(ID {affected_member.user_id})')
+
+            # Revert nickname
+            if affected_member.nickname != backup_member.nickname:
+                guild_logger.debug(f'Setting nickname of {username} to '
+                    f'“{backup_member.nickname or ""}”.')
+                if not dry_run:
+                    try:
+                        await affected_member.model.edit(
+                            nick=backup_member.nickname, reason=reason)
+                    except Exception as e:
+                        guild_logger.warning(self._format_logged_exception(e))
+
+            # Remove roles
+            extra_role_names = affected_member.role_names - backup_member.role_names
+            if extra_role_names:
+                guild_logger.debug(
+                    f'Removing roles from {username}: {sorted(extra_role_names)}.')
+                if not dry_run:
+                    try:
+                        await affected_member.model.remove_roles(
+                            *(affected_roles_by_name[extra_role_name]
+                                for extra_role_name in extra_role_names),
+                            reason=reason)
+                    except Exception as e:
+                        guild_logger.warning(self._format_logged_exception(e))
+
+            # Add roles
+            missing_role_names = backup_member.role_names - affected_member.role_names
+            if missing_role_names:
+                guild_logger.debug(
+                    f'Adding roles to {username}: {sorted(missing_role_names)}.')
+                if not dry_run:
+                    try:
+                        await affected_member.model.add_roles(
+                            *(affected_roles_by_name[missing_role_name]
+                                for missing_role_name in missing_role_names),
+                            reason=reason)
+                    except Exception as e:
+                        guild_logger.warning(self._format_logged_exception(e))
 
         # Reattach input file
         return [csv_gz_attachment_file]
@@ -509,6 +578,21 @@ class RolesBotClient(_discord.Client):
         csv_gz_file.fp.seek(0)
 
         return members
+
+    @staticmethod
+    def _format_logged_exception(
+        exception: Exception
+    ) -> str:
+        """Formats *exception* and its chained exceptions using one line each
+        without tracebacks for abbreviated logging purposes.
+        """
+        messages = []
+        exception_current: _typing.Optional[BaseException] = exception
+        while exception_current is not None:
+            messages.append(
+                f'{type(exception_current).__name__}: {exception_current}')
+            exception_current = exception_current.__cause__
+        return '\n'.join(messages)
 
 
 
