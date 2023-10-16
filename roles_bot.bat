@@ -15,7 +15,7 @@ REM Install missing libraries.
 ECHO Installing Dependencies:
 py -3 -m pip install --requirement "%BatchFolder%\requirements.txt" ^
     | FIND /V "Requirement already satisfied: "
-ECHO.
+ECHO:
 
 
 
@@ -34,8 +34,8 @@ IF NOT ERRORLEVEL 1 (
         --cache-dir "%BatchFolder%\.mypy_cache"
     REM Note: Problems do not stop execution.
 
-    ECHO.
-    ECHO.
+    ECHO:
+    ECHO:
 )
 
 
@@ -45,5 +45,5 @@ SET Command=py -3 "%BatchFolder%\roles_bot.py" %*
 ECHO Executing: %Command%
 %Command%
 
-ECHO.
+ECHO:
 PAUSE
