@@ -266,7 +266,7 @@ class RolesBotClient(_discord.Client):
             """
             return {
                 # Prefix ID so spreadsheets interpret huge number as lossless text.
-                RolesBotClient._COLUMN_USER_ID: f'#{self.user_id}',
+                RolesBotClient._COLUMN_USER_ID: f'#{self.user_id:x}',
                 RolesBotClient._COLUMN_USERNAME: self.username,
                 RolesBotClient._COLUMN_NICKNAME: self.nickname or '',
                 # 0/1 booleans for each role
