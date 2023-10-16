@@ -179,6 +179,9 @@ class RolesBotClient(_discord.Client):
         _user_id: int
         """Backing field of read-only :func:`.user_id`."""
 
+        _model: _typing.Optional[_discord.Member]
+        """Backing field of read-only :func:`.model`."""
+
         username: str
         """Discord login name with or without a discriminator
         like ``#9999``.  Users may change this, so see :func:`.user_id` for a
@@ -196,11 +199,13 @@ class RolesBotClient(_discord.Client):
 
         def __init__(self,
             user_id: int,
+            model: _typing.Optional[_discord.Member],
             username: str,
             nickname: _typing.Optional[str],
             role_names: set[str]
         ) -> None:
             self._user_id = user_id
+            self._model = model
             self.username = username
             self.nickname = nickname
             self.role_names = role_names
@@ -211,7 +216,7 @@ class RolesBotClient(_discord.Client):
             affected_roles: _collections.abc.Iterable[_discord.Role]
         ) -> _typing.Self:
             """Factory to construct a member queried from a Discord server."""
-            return cls(user_id=member.id,
+            return cls(user_id=member.id, model=member,
                 username=str(member),  # New-style username or discriminator
                 nickname=member.nick,
                 role_names=set(role.name for role in affected_roles
@@ -260,7 +265,7 @@ class RolesBotClient(_discord.Client):
                 if bool(membership_int):
                     role_names.add(role_name)
 
-            return cls(user_id=user_id,
+            return cls(user_id=user_id, model=None,
                 username=username, nickname=nickname, role_names=role_names)
 
         @property
@@ -268,10 +273,18 @@ class RolesBotClient(_discord.Client):
             """Globaly unique Discord user ID that will never change."""
             return self._user_id
 
+        @property
+        def model(self) -> _typing.Optional[_discord.Member]:
+            """Reference to the live Discord representation of this member that
+            this record was copied from, or ``None`` if not generated from live
+            data.  Does not remain synced with this instance's members.
+            """
+            return self._model
+
         def copy(self) -> _typing.Self:
             """Creates a modifiable deep copy of this member."""
             return type(self)(
-                user_id=self.user_id, username=self.username,
+                user_id=self.user_id, model=self.model, username=self.username,
                 nickname=self.nickname, role_names=self.role_names.copy())
 
         def encode_csv_row(self,
