@@ -4,7 +4,7 @@ commands until closed.
 """
 
 
-__version__ = '0.0.7'
+__version__ = '0.0.8'
 
 __authors__ = ['James Abernathy']
 __copyright__ = 'Copyright © 2023 James Abernathy'
@@ -62,6 +62,13 @@ class RolesBotClient(_discord.Client):
     """Server-specific busy flags indexed by guild ID and set ``True`` during
     backup, restore, and update operations.
     """
+
+
+    _LOG_FILENAME: _typing.Final[str] = 'Log.txt.gz'
+    """Filename of log attachment added to each command response."""
+
+    _LOG_ENCODING: _typing.Final[str] = 'utf_8'
+    """Text encoding of command log attachments."""
 
 
     _CSV_ENCODING: _typing.Final[str] = 'utf_8_sig'
@@ -336,12 +343,31 @@ class RolesBotClient(_discord.Client):
             guild_logger.info(message)
             await interaction.response.send_message(content=message)
 
-            # Execute long-running command
+            # Execute and send final response
+            log_gz_file = _io.BytesIO()
+            log_gz_attachment = _discord.File(log_gz_file, self._LOG_FILENAME)
             try:
                 assert guild == interaction.guild, (
                     'Interaction originated from wrong guild '
                     f'“{interaction.guild}” (Guild ID: {interaction.guild_id:x}).')
-                attachments = await command_callback(guild, *command_args)
+
+                # Capture logs into an attachment
+                with _gzip.GzipFile(mode='wb',
+                    fileobj=log_gz_file, filename=self._LOG_FILENAME,
+                    mtime=int(_datetime.datetime.now().timestamp())
+                ) as log_bytes_file:
+                    with _io.TextIOWrapper(
+                        _typing.cast(_typing.IO[bytes], log_bytes_file),
+                        encoding=self._LOG_ENCODING, errors='replace', newline=''
+                    ) as log_file:
+                        log_file_handler = _logging.StreamHandler(log_file)
+                        guild_logger.addHandler(log_file_handler)
+                        try:
+                            # Execute long-running command
+                            attachments = await command_callback(
+                                guild, *command_args)
+                        finally:
+                            guild_logger.removeHandler(log_file_handler)
             except Exception as ex:
                 # Embed exception in placeholder
                 message = f'{command_name} failed:'
@@ -351,15 +377,24 @@ class RolesBotClient(_discord.Client):
                     f'{_discord.utils.escape_markdown(str(ex))}\n'
                     '```')
 
+                # Rewind log so Discord can read into an attachment.
+                log_gz_file.seek(0)
+
                 await interaction.edit_original_response(content=message,
                     embed=_discord.Embed(title=ex_name,
                         description=ex_message, type='rich',
-                        color=_discord.Colour.brand_red()))
+                        color=_discord.Colour.brand_red()),
+                    attachments=[log_gz_attachment])
                 raise
             else:
-                # Attach files to placeholder
                 message = f'{command_name} succeeded.'
                 guild_logger.info(message)
+
+                # Rewind log so Discord can read into an attachment.
+                log_gz_file.seek(0)
+
+                # Attach files to placeholder
+                attachments.insert(0, log_gz_attachment)
                 await interaction.edit_original_response(content=message,
                     attachments=attachments)
 
@@ -559,7 +594,7 @@ class RolesBotClient(_discord.Client):
         # Rewind so Discord can read into an attachment.
         csv_gz_file.seek(0)
 
-        return _discord.File(csv_gz_file, filename=filename)
+        return _discord.File(csv_gz_file, filename)
 
     def _decode_gzipped_csv(self,
         csv_gz_file: _discord.File
